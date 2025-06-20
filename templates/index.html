@@ -1,206 +1,595 @@
-from flask import Flask, render_template, request, jsonify
-import pandas as pd
-import re
-import os
-import json
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinanceBot AI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --dark-bg: #1a1a2e;
+            --card-bg: rgba(255, 255, 255, 0.95);
+            --glass-bg: rgba(255, 255, 255, 0.1);
+            --text-primary: #2c3e50;
+            --text-secondary: #7f8c8d;
+        }
 
-# Try to read CSV first, then Excel as fallback
-data_file = "report.csv"
-if os.path.exists(data_file):
-    data = pd.read_csv(data_file)
-else:
-    excel_path = "report.xlsx"
-    if os.path.exists(excel_path):
-        data = pd.read_excel(excel_path)
-    else:
-        raise FileNotFoundError("Neither report.csv nor report.xlsx found. Please check the file path.")
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-app = Flask(__name__)
+        body {
+            background: var(--primary-gradient);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
 
-# Normalize column names and handle the data
-data.columns = [col.strip().replace('_', ' ').title() for col in data.columns]
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="50" cy="50" r="0.5" fill="rgba(255,255,255,0.05)"/><circle cx="25" cy="25" r="0.3" fill="rgba(255,255,255,0.03)"/><circle cx="75" cy="75" r="0.4" fill="rgba(255,255,255,0.04)"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
+            pointer-events: none;
+            z-index: 1;
+        }
 
-# Convert numeric columns to proper format
-numeric_columns = ['Total Revenue', 'Net Income', 'Total Assets', 'Total Liabilities', 'Cash Flow From Operating Activities']
-for col in numeric_columns:
-    if col in data.columns:
-        data[col] = pd.to_numeric(data[col], errors='coerce')
+        .hero-section {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.9) 0%, rgba(118, 75, 162, 0.9) 100%);
+            color: white;
+            padding: 60px 0 80px;
+            text-align: center;
+            position: relative;
+            z-index: 2;
+            backdrop-filter: blur(10px);
+        }
 
-# Define comprehensive metrics mapping
-metrics_map = {
-    "revenue": "Total Revenue",
-    "total revenue": "Total Revenue",
-    "income": "Net Income", 
-    "net income": "Net Income",
-    "profit": "Net Income",
-    "assets": "Total Assets",
-    "total assets": "Total Assets",
-    "liabilities": "Total Liabilities",
-    "total liabilities": "Total Liabilities",
-    "cash flow": "Cash Flow From Operating Activities",
-    "operating cash flow": "Cash Flow From Operating Activities",
-    "cash flow from operating activities": "Cash Flow From Operating Activities"
-}
+        .hero-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 200"><path d="M0,100 C300,20 600,180 1200,80 L1200,200 L0,200 Z" fill="rgba(255,255,255,0.1)"/></svg>') no-repeat bottom;
+            background-size: cover;
+        }
 
-def format_number(value):
-    """Format large numbers in a readable way"""
-    if pd.isna(value) or value == 0:
-        return "0"
-    
-    if abs(value) >= 1000000:
-        return f"${value/1000000:.2f} million"
-    elif abs(value) >= 1000:
-        return f"${value/1000:.2f} thousand" 
-    else:
-        return f"${value:.2f}"
+        .hero-content {
+            position: relative;
+            z-index: 3;
+        }
 
-def extract_company(query, companies):
-    """Extract company name from query"""
-    query_lower = query.lower()
-    for company in companies:
-        if company.lower() in query_lower:
-            return company
-    return None
+        .hero-title {
+            font-size: 3.5rem;
+            font-weight: 800;
+            margin-bottom: 1rem;
+            text-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            background: linear-gradient(45deg, #fff, #e3f2fd);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
 
-def extract_year(query):
-    """Extract year from query"""
-    year_match = re.search(r"\b(20\d{2})\b", query)
-    return int(year_match.group(1)) if year_match else None
+        .hero-subtitle {
+            font-size: 1.3rem;
+            opacity: 0.9;
+            margin-bottom: 2rem;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
 
-def extract_metric(query):
-    """Extract metric from query"""
-    query_lower = query.lower()
-    # Sort by length to match longer phrases first
-    sorted_metrics = sorted(metrics_map.keys(), key=len, reverse=True)
-    for metric_key in sorted_metrics:
-        if metric_key in query_lower:
-            return metrics_map[metric_key]
-    return None
+        .main-container {
+            max-width: 1200px;
+            margin: -40px auto 0;
+            padding: 0 20px;
+            position: relative;
+            z-index: 2;
+        }
 
-def get_available_data_summary():
-    """Get summary of available data"""
-    companies = data['Company'].unique().tolist()
-    years = sorted(data['Year'].unique().tolist())
-    metrics = [col for col in data.columns if col not in ['Company', 'Year']]
-    
-    return {
-        'companies': companies,
-        'years': years,
-        'metrics': metrics
-    }
+        .chat-card {
+            background: var(--card-bg);
+            border-radius: 24px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            margin-bottom: 30px;
+        }
 
-def handle_comparison_query(query):
-    """Handle comparison queries between companies or years"""
-    query_lower = query.lower()
-    
-    if "compare" in query_lower or "vs" in query_lower or "versus" in query_lower:
-        companies = data['Company'].unique()
-        found_companies = [c for c in companies if c.lower() in query_lower]
+        .quick-actions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .action-card {
+            background: var(--glass-bg);
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            cursor: pointer;
+        }
+
+        .action-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .action-icon {
+            font-size: 2.5rem;
+            margin-bottom: 15px;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .action-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .action-desc {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        .chat-interface {
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }
+
+        .chat-header {
+            background: var(--primary-gradient);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .chat-messages {
+            height: 400px;
+            overflow-y: auto;
+            padding: 20px;
+            background: linear-gradient(to bottom, #f8f9fa, #ffffff);
+        }
+
+        .message {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            flex-shrink: 0;
+        }
+
+        .message.user .message-avatar {
+            background: var(--secondary-gradient);
+            color: white;
+        }
+
+        .message.bot .message-avatar {
+            background: var(--success-gradient);
+            color: white;
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 15px 20px;
+            border-radius: 18px;
+            position: relative;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        .message.user .message-content {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border-bottom-right-radius: 5px;
+        }
+
+        .message.bot .message-content {
+            background: white;
+            color: var(--text-primary);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e9ecef;
+            border-bottom-left-radius: 5px;
+        }
+
+        .chat-input-container {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e9ecef;
+        }
+
+        .chat-input-form {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .chat-input {
+            flex: 1;
+            border: 2px solid #e9ecef;
+            border-radius: 25px;
+            padding: 12px 20px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            background: #f8f9fa;
+        }
+
+        .chat-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            background: white;
+        }
+
+        .send-btn {
+            background: var(--primary-gradient);
+            border: none;
+            color: white;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 1.2rem;
+        }
+
+        .send-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 16px;
+            padding: 25px;
+            text-align: center;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            border: 1px solid #e9ecef;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: 700;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .chart-container {
+            background: white;
+            border-radius: 16px;
+            padding: 25px;
+            margin-top: 20px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+            display: none;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 40px 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.9rem;
+        }
+
+        .typing-indicator {
+            display: none;
+            padding: 10px 20px;
+            background: #f1f3f4;
+            border-radius: 18px;
+            margin: 10px 0;
+            width: fit-content;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 4px;
+        }
+
+        .typing-dots span {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #999;
+            animation: typing 1.4s infinite ease-in-out both;
+        }
+
+        .typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
+            40% { transform: scale(1); opacity: 1; }
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @media (max-width: 768px) {
+            .hero-title { font-size: 2.5rem; }
+            .main-container { margin-top: -20px; }
+            .chat-card { padding: 20px; }
+            .quick-actions { grid-template-columns: 1fr; }
+            .message-content { max-width: 85%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="hero-section">
+        <div class="hero-content">
+            <h1 class="hero-title">💼 FinanceBot AI</h1>
+            <p class="hero-subtitle">Your intelligent financial data assistant</p>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="chat-card">
+            <h3 class="text-center mb-4" style="color: var(--text-primary);">
+                <i class="fas fa-rocket"></i> Quick Insights
+            </h3>
+            <div class="quick-actions">
+                <div class="action-card" onclick="askQuestion('What was Apple\\'s total revenue in 2022?')">
+                    <div class="action-icon"><i class="fas fa-chart-line"></i></div>
+                    <div class="action-title">Revenue Analysis</div>
+                    <div class="action-desc">Get latest revenue figures</div>
+                </div>
+                <div class="action-card" onclick="askQuestion('Show me Tesla\\'s net income in 2024')">
+                    <div class="action-icon"><i class="fas fa-dollar-sign"></i></div>
+                    <div class="action-title">Profit Analysis</div>
+                    <div class="action-desc">View net income data</div>
+                </div>
+                <div class="action-card" onclick="askQuestion('Compare Microsoft and Apple revenue in 2023')">
+                    <div class="action-icon"><i class="fas fa-balance-scale"></i></div>
+                    <div class="action-title">Company Comparison</div>
+                    <div class="action-desc">Side-by-side analysis</div>
+                </div>
+                <div class="action-card" onclick="askQuestion('What are Tesla\\'s total liabilities in 2024?')">
+                    <div class="action-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                    <div class="action-title">Risk Assessment</div>
+                    <div class="action-desc">Analyze liabilities</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="chat-interface">
+            <div class="chat-header">
+                <i class="fas fa-comments"></i> Chat with FinanceBot
+            </div>
+            <div class="chat-messages" id="chatMessages">
+                <div class="message bot">
+                    <div class="message-avatar">🤖</div>
+                    <div class="message-content">
+                        Hello! I'm your financial data assistant. I can help you analyze data for Apple, Tesla, and Microsoft across multiple years. Try asking me about revenue, net income, assets, liabilities, or cash flow!
+                    </div>
+                </div>
+            </div>
+            <div class="typing-indicator" id="typingIndicator">
+                <div class="typing-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </div>
+            <div class="chat-input-container">
+                <form class="chat-input-form" id="chatForm">
+                    <input type="text" class="chat-input" name="user_input" id="userInput" 
+                           placeholder="Ask me about financial data..." required>
+                    <button type="submit" class="send-btn">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="chart-container" id="chartContainer">
+            <h4 style="color: var(--text-primary); margin-bottom: 20px;">
+                <i class="fas fa-chart-area"></i> Data Visualization
+            </h4>
+            <canvas id="dataChart" width="400" height="200"></canvas>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number">3</div>
+                <div class="stat-label">Companies</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">5</div>
+                <div class="stat-label">Years of Data</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">8</div>
+                <div class="stat-label">Financial Metrics</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">24/7</div>
+                <div class="stat-label">Available</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>&copy; 2025 FinanceBot AI | Powered by Modern Web Technologies</p>
+    </div>
+
+    <script>
+        let chart = null;
         
-        if len(found_companies) >= 2:
-            year = extract_year(query) or data['Year'].max()
-            metric = extract_metric(query)
+        function askQuestion(question) {
+            document.getElementById('userInput').value = question;
+            handleUserInput(question); // Trigger the submission directly
+        }
+
+        function addMessage(text, isUser = false) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user' : 'bot'}`;
             
-            if metric:
-                results = []
-                for company in found_companies:
-                    row = data[(data['Company'] == company) & (data['Year'] == year)]
-                    if not row.empty:
-                        value = row.iloc[0][metric]
-                        results.append(f"{company}: {format_number(value)}")
-                
-                if results:
-                    return f"Comparison of {metric.lower()} in {year}:\n" + "\n".join(results)
-    
-    return None
+            messageDiv.innerHTML = `
+                <div class="message-avatar">${isUser ? '👤' : '🤖'}</div>
+                <div class="message-content">${text}</div>
+            `;
+            
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
 
-@app.route("/", methods=["GET", "POST"])
-def home():
-    response = ""
-    user_query = ""
-    chart_data = None
+        function showTypingIndicator() {
+            document.getElementById('typingIndicator').style.display = 'block';
+            document.getElementById('chatMessages').scrollTop = document.getElementById('chatMessages').scrollHeight;
+        }
 
-    if request.method == "POST":
-        # Handle both custom input and predefined buttons
-        user_query = request.form.get("user_input") or request.form.get("query", "")
-        
-        if user_query:
-            # First check for comparison queries
-            comparison_result = handle_comparison_query(user_query)
-            if comparison_result:
-                response = comparison_result
-            else:
-                # Regular single query processing
-                companies = data['Company'].unique()
-                company = extract_company(user_query, companies)
-                year = extract_year(user_query)
-                metric = extract_metric(user_query)
+        function hideTypingIndicator() {
+            document.getElementById('typingIndicator').style.display = 'none';
+        }
 
-                if company and metric:
-                    # If year is not specified, get the latest year for that company
-                    if not year:
-                        company_data = data[data['Company'] == company]
-                        year = company_data['Year'].max()
-                    
-                    row = data[(data['Company'] == company) & (data['Year'] == year)]
-                    if not row.empty:
-                        value = row.iloc[0][metric]
-                        if pd.notna(value) and value != 0:
-                            response = f"{metric} for {company} in {year} was {format_number(value)}."
-                            
-                            # Generate chart data for trends
-                            company_trend = data[data['Company'] == company][['Year', metric]].dropna()
-                            if len(company_trend) > 1:
-                                chart_data = {
-                                    'labels': company_trend['Year'].tolist(),
-                                    'data': company_trend[metric].tolist(),
-                                    'label': f"{company} - {metric}"
+        function createChart(chartData) {
+            const ctx = document.getElementById('dataChart').getContext('2d');
+            
+            if (chart) {
+                chart.destroy();
+            }
+            
+            chart = new Chart(ctx, {
+                type: chartData.type || 'line', // Allow type to be passed from backend
+                data: {
+                    labels: chartData.labels,
+                    datasets: chartData.datasets // Datasets directly from backend
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    if (value >= 1000000000) {
+                                        return '$' + (value / 1000000000).toFixed(1) + 'B';
+                                    } else if (value >= 1000000) {
+                                        return '$' + (value / 1000000).toFixed(1) + 'M';
+                                    }
+                                    return '$' + value;
                                 }
-                        else:
-                            response = f"No data available for {metric} of {company} in {year}."
-                    else:
-                        response = f"Sorry, I couldn't find data for {company} in {year}."
-                        # Suggest available years
-                        available_years = data[data['Company'] == company]['Year'].unique()
-                        if len(available_years) > 0:
-                            response += f" Available years for {company}: {', '.join(map(str, sorted(available_years)))}"
-                
-                elif "help" in user_query.lower() or "what can you do" in user_query.lower():
-                    summary = get_available_data_summary()
-                    response = f"""I can help you analyze financial data for: {', '.join(summary['companies'])}.
-                    
-Available years: {', '.join(map(str, summary['years']))}
-Available metrics: {', '.join(summary['metrics'])}
+                            }
+                        }
+                    }
+                }
+            });
+            
+            document.getElementById('chartContainer').style.display = 'block';
+        }
 
-Try asking questions like:
-• "What was Apple's revenue in 2022?"
-• "Show me Tesla's net income in 2024"
-• "Compare Microsoft and Apple revenue in 2023"
-• "What are Tesla's liabilities?"
-"""
-                
-                else:
-                    response = """Please ask a specific question about financial data. For example:
-• "What was the revenue of Apple in 2022?"
-• "Show me Tesla's net income in 2024"
-• "Compare Microsoft and Apple revenue"
-• Type 'help' to see all available data"""
+        // Event listener for form submission
+        document.getElementById('chatForm').addEventListener('submit', function(event) {
+            event.preventDefault(); // Prevent default form submission
+            const userInput = document.getElementById('userInput').value.trim();
+            if (userInput) {
+                handleUserInput(userInput);
+                document.getElementById('userInput').value = ''; // Clear input field
+            }
+        });
 
-    # Get summary for the template
-    data_summary = get_available_data_summary()
-    
-    return render_template("index.html", 
-                         response=response, 
-                         user_input=user_query,
-                         chart_data=json.dumps(chart_data) if chart_data else None,
-                         companies=data_summary['companies'],
-                         years=data_summary['years'],
-                         metrics=data_summary['metrics'])
+        async function handleUserInput(query) {
+            addMessage(query, true); // Display user's message immediately
+            showTypingIndicator();
 
-@app.route("/api/data")
-def api_data():
-    """API endpoint to get all data"""
-    return jsonify(data.to_dict('records'))
+            try {
+                const response = await fetch('/', { // Send POST request to the same URL
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `user_input=${encodeURIComponent(query)}` // Send user input as form data
+                });
 
-if __name__ == "__main__":
-    app.run(debug=True)
+                const data = await response.json(); // Expecting JSON response from Flask
+
+                hideTypingIndicator();
+                addMessage(data.response); // Display bot's response
+
+                if (data.chart_data) {
+                    createChart(data.chart_data);
+                } else {
+                    document.getElementById('chartContainer').style.display = 'none'; // Hide chart if no data
+                }
+
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                hideTypingIndicator();
+                addMessage('Oops! Something went wrong. Please try again later.');
+                document.getElementById('chartContainer').style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
