@@ -1,4 +1,3 @@
-cat << 'EOF' > README.md
 # 💼 FinanceBot AI
 
 FinanceBot AI is a modern, interactive web app that lets users ask questions about financial data for Apple, Tesla, and Microsoft. It responds with direct answers and dynamic charts using natural language input.
@@ -92,8 +91,6 @@ This project is licensed under the MIT License.
 
 ---
 
-## 👨‍💻 Author
 
-**Your Name**  
-GitHub: [@your-username](https://github.com/your-username)
-EOF
+
+
