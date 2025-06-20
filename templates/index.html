@@ -1,0 +1,206 @@
+from flask import Flask, render_template, request, jsonify
+import pandas as pd
+import re
+import os
+import json
+
+# Try to read CSV first, then Excel as fallback
+data_file = "report.csv"
+if os.path.exists(data_file):
+    data = pd.read_csv(data_file)
+else:
+    excel_path = "report.xlsx"
+    if os.path.exists(excel_path):
+        data = pd.read_excel(excel_path)
+    else:
+        raise FileNotFoundError("Neither report.csv nor report.xlsx found. Please check the file path.")
+
+app = Flask(__name__)
+
+# Normalize column names and handle the data
+data.columns = [col.strip().replace('_', ' ').title() for col in data.columns]
+
+# Convert numeric columns to proper format
+numeric_columns = ['Total Revenue', 'Net Income', 'Total Assets', 'Total Liabilities', 'Cash Flow From Operating Activities']
+for col in numeric_columns:
+    if col in data.columns:
+        data[col] = pd.to_numeric(data[col], errors='coerce')
+
+# Define comprehensive metrics mapping
+metrics_map = {
+    "revenue": "Total Revenue",
+    "total revenue": "Total Revenue",
+    "income": "Net Income", 
+    "net income": "Net Income",
+    "profit": "Net Income",
+    "assets": "Total Assets",
+    "total assets": "Total Assets",
+    "liabilities": "Total Liabilities",
+    "total liabilities": "Total Liabilities",
+    "cash flow": "Cash Flow From Operating Activities",
+    "operating cash flow": "Cash Flow From Operating Activities",
+    "cash flow from operating activities": "Cash Flow From Operating Activities"
+}
+
+def format_number(value):
+    """Format large numbers in a readable way"""
+    if pd.isna(value) or value == 0:
+        return "0"
+    
+    if abs(value) >= 1000000:
+        return f"${value/1000000:.2f} million"
+    elif abs(value) >= 1000:
+        return f"${value/1000:.2f} thousand" 
+    else:
+        return f"${value:.2f}"
+
+def extract_company(query, companies):
+    """Extract company name from query"""
+    query_lower = query.lower()
+    for company in companies:
+        if company.lower() in query_lower:
+            return company
+    return None
+
+def extract_year(query):
+    """Extract year from query"""
+    year_match = re.search(r"\b(20\d{2})\b", query)
+    return int(year_match.group(1)) if year_match else None
+
+def extract_metric(query):
+    """Extract metric from query"""
+    query_lower = query.lower()
+    # Sort by length to match longer phrases first
+    sorted_metrics = sorted(metrics_map.keys(), key=len, reverse=True)
+    for metric_key in sorted_metrics:
+        if metric_key in query_lower:
+            return metrics_map[metric_key]
+    return None
+
+def get_available_data_summary():
+    """Get summary of available data"""
+    companies = data['Company'].unique().tolist()
+    years = sorted(data['Year'].unique().tolist())
+    metrics = [col for col in data.columns if col not in ['Company', 'Year']]
+    
+    return {
+        'companies': companies,
+        'years': years,
+        'metrics': metrics
+    }
+
+def handle_comparison_query(query):
+    """Handle comparison queries between companies or years"""
+    query_lower = query.lower()
+    
+    if "compare" in query_lower or "vs" in query_lower or "versus" in query_lower:
+        companies = data['Company'].unique()
+        found_companies = [c for c in companies if c.lower() in query_lower]
+        
+        if len(found_companies) >= 2:
+            year = extract_year(query) or data['Year'].max()
+            metric = extract_metric(query)
+            
+            if metric:
+                results = []
+                for company in found_companies:
+                    row = data[(data['Company'] == company) & (data['Year'] == year)]
+                    if not row.empty:
+                        value = row.iloc[0][metric]
+                        results.append(f"{company}: {format_number(value)}")
+                
+                if results:
+                    return f"Comparison of {metric.lower()} in {year}:\n" + "\n".join(results)
+    
+    return None
+
+@app.route("/", methods=["GET", "POST"])
+def home():
+    response = ""
+    user_query = ""
+    chart_data = None
+
+    if request.method == "POST":
+        # Handle both custom input and predefined buttons
+        user_query = request.form.get("user_input") or request.form.get("query", "")
+        
+        if user_query:
+            # First check for comparison queries
+            comparison_result = handle_comparison_query(user_query)
+            if comparison_result:
+                response = comparison_result
+            else:
+                # Regular single query processing
+                companies = data['Company'].unique()
+                company = extract_company(user_query, companies)
+                year = extract_year(user_query)
+                metric = extract_metric(user_query)
+
+                if company and metric:
+                    # If year is not specified, get the latest year for that company
+                    if not year:
+                        company_data = data[data['Company'] == company]
+                        year = company_data['Year'].max()
+                    
+                    row = data[(data['Company'] == company) & (data['Year'] == year)]
+                    if not row.empty:
+                        value = row.iloc[0][metric]
+                        if pd.notna(value) and value != 0:
+                            response = f"{metric} for {company} in {year} was {format_number(value)}."
+                            
+                            # Generate chart data for trends
+                            company_trend = data[data['Company'] == company][['Year', metric]].dropna()
+                            if len(company_trend) > 1:
+                                chart_data = {
+                                    'labels': company_trend['Year'].tolist(),
+                                    'data': company_trend[metric].tolist(),
+                                    'label': f"{company} - {metric}"
+                                }
+                        else:
+                            response = f"No data available for {metric} of {company} in {year}."
+                    else:
+                        response = f"Sorry, I couldn't find data for {company} in {year}."
+                        # Suggest available years
+                        available_years = data[data['Company'] == company]['Year'].unique()
+                        if len(available_years) > 0:
+                            response += f" Available years for {company}: {', '.join(map(str, sorted(available_years)))}"
+                
+                elif "help" in user_query.lower() or "what can you do" in user_query.lower():
+                    summary = get_available_data_summary()
+                    response = f"""I can help you analyze financial data for: {', '.join(summary['companies'])}.
+                    
+Available years: {', '.join(map(str, summary['years']))}
+Available metrics: {', '.join(summary['metrics'])}
+
+Try asking questions like:
+• "What was Apple's revenue in 2022?"
+• "Show me Tesla's net income in 2024"
+• "Compare Microsoft and Apple revenue in 2023"
+• "What are Tesla's liabilities?"
+"""
+                
+                else:
+                    response = """Please ask a specific question about financial data. For example:
+• "What was the revenue of Apple in 2022?"
+• "Show me Tesla's net income in 2024"
+• "Compare Microsoft and Apple revenue"
+• Type 'help' to see all available data"""
+
+    # Get summary for the template
+    data_summary = get_available_data_summary()
+    
+    return render_template("index.html", 
+                         response=response, 
+                         user_input=user_query,
+                         chart_data=json.dumps(chart_data) if chart_data else None,
+                         companies=data_summary['companies'],
+                         years=data_summary['years'],
+                         metrics=data_summary['metrics'])
+
+@app.route("/api/data")
+def api_data():
+    """API endpoint to get all data"""
+    return jsonify(data.to_dict('records'))
+
+if __name__ == "__main__":
+    app.run(debug=True)
